@@ -1,15 +1,15 @@
-import 'video_item.dart';
+import 'experience.dart';
 
 class Category {
   final String id;
   final String name;
-  final List<VideoItem> videos;
+  final List<Experience> experiences;
   final DateTime? modifiedTime;
 
   const Category({
     required this.id,
     required this.name,
-    required this.videos,
+    required this.experiences,
     this.modifiedTime,
   });
 }

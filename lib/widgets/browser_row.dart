@@ -1,41 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../models/category.dart';
-import '../models/experience.dart';
-import 'experience_card.dart';
+import '../models/browser_item.dart';
+import 'browser_card.dart';
 
-class CategoryRow extends StatefulWidget {
-  final Category category;
-  final ValueChanged<Experience>? onExperienceSelected;
+class BrowserRow extends StatefulWidget {
+  final String title;
+  final List<BrowserItem> items;
   final bool initialFocus;
   final List<FocusNode>? focusNodes;
   final List<VoidCallback?>? upCallbacks;
   final List<VoidCallback?>? downCallbacks;
   final ScrollController? scrollController;
+  final ValueChanged<BrowserItem>? onItemSelected;
 
-  const CategoryRow({
+  const BrowserRow({
     super.key,
-    required this.category,
-    this.onExperienceSelected,
+    required this.title,
+    required this.items,
     this.initialFocus = false,
     this.focusNodes,
     this.upCallbacks,
     this.downCallbacks,
     this.scrollController,
+    this.onItemSelected,
   });
 
   @override
-  State<CategoryRow> createState() => _CategoryRowState();
+  State<BrowserRow> createState() => _BrowserRowState();
 }
 
-class _CategoryRowState extends State<CategoryRow> {
+class _BrowserRowState extends State<BrowserRow> {
   double _cardWidth(BuildContext context) {
-    return MediaQuery.of(context).size.height * 0.18;
+    return MediaQuery.of(context).size.height * 0.16;
   }
 
   void _scrollToCenter(int index, ScrollController controller, BuildContext context) {
     if (!controller.hasClients || !controller.position.hasContentDimensions) return;
-    final double itemWidth = _cardWidth(context) + 20;
+    final double itemWidth = _cardWidth(context) + 16;
     final double paddingStart = MediaQuery.of(context).size.width * 0.015;
     final double viewportWidth = controller.position.viewportDimension;
     if (viewportWidth <= 0) return;
@@ -61,7 +62,7 @@ class _CategoryRowState extends State<CategoryRow> {
   Widget build(BuildContext context) {
     final ctrl = widget.scrollController;
     final sh = MediaQuery.of(context).size.height;
-    final cardH = _cardWidth(context) * 1.45 + 6;
+    final cardH = _cardWidth(context) * 1.35 + 6;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -69,7 +70,7 @@ class _CategoryRowState extends State<CategoryRow> {
         Padding(
           padding: EdgeInsets.fromLTRB(sh * 0.025, sh * 0.012, 0, sh * 0.008),
           child: Text(
-            widget.category.name,
+            widget.title,
             style: TextStyle(
               color: Colors.white,
               fontSize: sh * 0.026,
@@ -86,8 +87,8 @@ class _CategoryRowState extends State<CategoryRow> {
                 scrollDirection: Axis.horizontal,
                 clipBehavior: Clip.hardEdge,
                 padding: EdgeInsets.symmetric(horizontal: MediaQuery.of(context).size.width * 0.015),
-                children: widget.category.experiences.asMap().entries.map((e) {
-                  final experience = e.value;
+                children: widget.items.asMap().entries.map((e) {
+                  final item = e.value;
                   final index = e.key;
 
                   VoidCallback? onLeft;
@@ -97,18 +98,18 @@ class _CategoryRowState extends State<CategoryRow> {
                   }
 
                   VoidCallback? onRight;
-                  if (index < widget.category.experiences.length - 1 &&
+                  if (index < widget.items.length - 1 &&
                       widget.focusNodes != null &&
                       index + 1 < widget.focusNodes!.length) {
                     final nextNode = widget.focusNodes![index + 1];
                     onRight = () => nextNode.requestFocus();
                   }
 
-                  return _FocusableExperienceCard(
-                    key: ValueKey('${widget.category.id}_$index'),
-                    experience: experience,
-                    onSelected: widget.onExperienceSelected != null
-                        ? () => widget.onExperienceSelected!(experience)
+                  return _FocusableBrowserCard(
+                    key: ValueKey('${widget.title}_$index'),
+                    item: item,
+                    onSelected: widget.onItemSelected != null
+                        ? () => widget.onItemSelected!(item)
                         : null,
                     autofocus: widget.initialFocus && index == 0,
                     focusNode: widget.focusNodes != null && index < widget.focusNodes!.length
@@ -128,7 +129,7 @@ class _CategoryRowState extends State<CategoryRow> {
                     onLeft: onLeft,
                     onRight: onRight,
                     isFirst: index == 0,
-                    isLast: index == widget.category.experiences.length - 1,
+                    isLast: index == widget.items.length - 1,
                   );
                 }).toList(),
               ),
@@ -181,8 +182,8 @@ class _CategoryRowState extends State<CategoryRow> {
   }
 }
 
-class _FocusableExperienceCard extends StatefulWidget {
-  final Experience experience;
+class _FocusableBrowserCard extends StatefulWidget {
+  final BrowserItem item;
   final VoidCallback? onSelected;
   final bool autofocus;
   final FocusNode? focusNode;
@@ -194,9 +195,9 @@ class _FocusableExperienceCard extends StatefulWidget {
   final bool isFirst;
   final bool isLast;
 
-  const _FocusableExperienceCard({
+  const _FocusableBrowserCard({
     super.key,
-    required this.experience,
+    required this.item,
     this.onSelected,
     this.autofocus = false,
     this.focusNode,
@@ -210,10 +211,10 @@ class _FocusableExperienceCard extends StatefulWidget {
   });
 
   @override
-  State<_FocusableExperienceCard> createState() => _FocusableExperienceCardState();
+  State<_FocusableBrowserCard> createState() => _FocusableBrowserCardState();
 }
 
-class _FocusableExperienceCardState extends State<_FocusableExperienceCard> {
+class _FocusableBrowserCardState extends State<_FocusableBrowserCard> {
   bool _isFocused = false;
 
   @override
@@ -223,7 +224,7 @@ class _FocusableExperienceCardState extends State<_FocusableExperienceCard> {
   }
 
   @override
-  void didUpdateWidget(_FocusableExperienceCard old) {
+  void didUpdateWidget(_FocusableBrowserCard old) {
     super.didUpdateWidget(old);
     if (widget.focusNode != old.focusNode) {
       _isFocused = widget.focusNode?.hasFocus ?? false;
@@ -273,8 +274,8 @@ class _FocusableExperienceCardState extends State<_FocusableExperienceCard> {
         }
         return KeyEventResult.ignored;
       },
-      child: ExperienceCard(
-        experience: widget.experience,
+      child: BrowserCard(
+        item: widget.item,
         isFocused: _isFocused,
       ),
     );

@@ -100,6 +100,22 @@ class _VideoCardState extends State<VideoCard> with SingleTickerProviderStateMix
           fit: StackFit.expand,
           children: [
             _buildThumbnail(),
+            Positioned(
+              top: 6,
+              left: 6,
+              child: Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: const Color(0xCC0A1628),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Icon(
+                  _typeIcon(widget.video.type),
+                  size: 20,
+                  color: const Color(0xFF42A5F5),
+                ),
+              ),
+            ),
             _buildOverlay(effectiveHeight),
           ],
         ),
@@ -191,9 +207,22 @@ class _VideoCardState extends State<VideoCard> with SingleTickerProviderStateMix
   Widget _buildPlaceholder() {
     return Container(
       color: Colors.grey.shade800,
-      child: const Center(
-        child: Icon(Icons.movie_outlined, color: Colors.grey, size: 56),
+      child: Center(
+        child: Icon(_typeIcon(widget.video.type), color: Colors.grey, size: 56),
       ),
     );
+  }
+
+  IconData _typeIcon(String type) {
+    switch (type) {
+      case 'image':
+        return Icons.image;
+      case 'gif':
+        return Icons.gif_box;
+      case 'pdf':
+        return Icons.picture_as_pdf;
+      default:
+        return Icons.movie_outlined;
+    }
   }
 }

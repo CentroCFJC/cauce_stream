@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/constants.dart';
+import '../models/browser_item.dart';
 import '../models/category.dart';
+import '../models/experience.dart';
 import '../models/video_item.dart';
 
 class GoogleDriveService {
@@ -14,20 +16,43 @@ class GoogleDriveService {
     final categories = <Category>[];
 
     for (final folder in folderNames) {
-      final videos = await _listVideosInFolder(folder);
-      if (videos.isNotEmpty) {
-        DateTime? modifiedTime;
-        if (folder['modifiedTime'] != null && folder['modifiedTime']!.isNotEmpty) {
-          modifiedTime = DateTime.tryParse(folder['modifiedTime']!);
-        }
-        categories.add(Category(
-          id: folder['id']!,
-          name: folder['name']!,
-          videos: videos,
-          modifiedTime: modifiedTime,
+      final subfolders = await _listSubfolders(folder['id']!);
+      if (subfolders.isEmpty) continue;
+
+      final experiences = <Experience>[];
+      for (final sub in subfolders) {
+        final coverUrl = await _findCover(sub['id']!);
+        final isAdvanced = await _hasCauceJson(sub['id']!);
+        experiences.add(Experience(
+          id: sub['id']!,
+          name: sub['name']!,
+          category: folder['name']!,
+          driveFolderId: sub['id']!,
+          coverUrl: coverUrl,
+          type: isAdvanced ? ExperienceType.advanced : ExperienceType.simple,
         ));
       }
+
+      DateTime? modifiedTime;
+      if (folder['modifiedTime'] != null && folder['modifiedTime']!.isNotEmpty) {
+        modifiedTime = DateTime.tryParse(folder['modifiedTime']!);
+      }
+
+      categories.add(Category(
+        id: folder['id']!,
+        name: folder['name']!,
+        experiences: experiences,
+        modifiedTime: modifiedTime,
+      ));
     }
+
+    categories.sort((a, b) {
+      final aName = a.name.toLowerCase().replaceAll(' ', '');
+      final bName = b.name.toLowerCase().replaceAll(' ', '');
+      if (aName == 'googletv') return -1;
+      if (bName == 'googletv') return 1;
+      return 0;
+    });
 
     return categories;
   }
@@ -57,94 +82,188 @@ class GoogleDriveService {
     return [];
   }
 
-  Future<List<VideoItem>> _listVideosInFolder(Map<String, String> folder) async {
+  Future<List<Map<String, String>>> _listSubfolders(String parentId) async {
     final url = '${AppConfig.driveBaseUrl}/files'
-        '?q=%27${folder['id']}%27+in+parents'
-        '+and+mimeType+contains+%27video%27'
+        '?q=%27$parentId%27+in+parents'
+        '+and+mimeType=%27application/vnd.google-apps.folder%27'
         '+and+trashed=false'
         '&key=${AppConfig.driveApiKey}'
-        '&fields=files(id,name,videoMediaMetadata)';
+        '&fields=files(id,name)'
+        '&orderBy=name';
 
     try {
       final response = await _client.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         final files = data['files'] as List<dynamic>? ?? [];
-        final videos = <VideoItem>[];
-
-        for (final f in files) {
-          final fileId = f['id'] as String;
-          final fileName = f['name'] as String;
-
-          if (!fileName.endsWith('.mp4')) continue;
-
-          final thumbnailUrl = await _resolveThumbnail(fileId, fileName, folder['id']!);
-          final videoUrl = '${AppConfig.driveDownloadUrl}/$fileId?alt=media&key=${AppConfig.driveApiKey}';
-
-          final metadata = f['videoMediaMetadata'] as Map<String, dynamic>?;
-          String? duration;
-          if (metadata != null && metadata.containsKey('durationMillis')) {
-            final millis = int.tryParse(metadata['durationMillis'].toString());
-            if (millis != null) {
-              duration = _formatDuration(millis);
-            }
-          }
-
-          videos.add(VideoItem(
-            id: fileId,
-            name: fileName.replaceAll('.mp4', ''),
-            videoUrl: videoUrl,
-            thumbnailUrl: thumbnailUrl,
-            duration: duration,
-          ));
-        }
-
-        return videos;
+        return files.map((f) => {
+          'id': f['id'] as String,
+          'name': f['name'] as String,
+        }).toList();
       }
     } catch (_) {}
 
     return [];
   }
 
-  Future<String?> _resolveThumbnail(String fileId, String fileName, String folderId) async {
-    final baseName = fileName.replaceAll('.mp4', '');
-
-    for (final ext in ['jpg', 'png']) {
-      final imageName = '$baseName.$ext';
-      final searchUrl = '${AppConfig.driveBaseUrl}/files'
-          '?q=name=%27$imageName%27'
-          '+and+%27$folderId%27+in+parents'
-          '+and+trashed=false'
-          '&key=${AppConfig.driveApiKey}'
-          '&fields=files(id)';
-      try {
-        final response = await _client.get(Uri.parse(searchUrl));
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body) as Map<String, dynamic>;
-          final files = data['files'] as List<dynamic>? ?? [];
-          if (files.isNotEmpty) {
-            final imageId = files[0]['id'] as String;
-            return '${AppConfig.driveDownloadUrl}/$imageId?alt=media&key=${AppConfig.driveApiKey}';
-          }
-        }
-      } catch (_) {}
-    }
-
-    final detailUrl = '${AppConfig.driveBaseUrl}/files/$fileId'
-        '?key=${AppConfig.driveApiKey}'
-        '&fields=thumbnailLink';
+  Future<String?> _findCover(String folderId) async {
+    final url = '${AppConfig.driveBaseUrl}/files'
+        '?q=%27$folderId%27+in+parents'
+        '+and+mimeType+contains+%27image%27'
+        '+and+trashed=false'
+        '&key=${AppConfig.driveApiKey}'
+        '&fields=files(id,name)';
 
     try {
-      final detailResponse = await _client.get(Uri.parse(detailUrl));
-      if (detailResponse.statusCode == 200) {
-        final detailData = jsonDecode(detailResponse.body) as Map<String, dynamic>;
-        if (detailData.containsKey('thumbnailLink') && detailData['thumbnailLink'] != null) {
-          return detailData['thumbnailLink'] as String;
+      final response = await _client.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final files = data['files'] as List<dynamic>? ?? [];
+
+        for (final f in files) {
+          final name = f['name'] as String;
+          final lowerName = name.toLowerCase();
+          final ext = lowerName.contains('.') ? lowerName.split('.').last : '';
+          final baseName = lowerName.contains('.')
+              ? lowerName.substring(0, lowerName.lastIndexOf('.'))
+              : lowerName;
+
+          if (baseName == 'portada' && ['png', 'jpg', 'jpeg', 'webp'].contains(ext)) {
+            final fileId = f['id'] as String;
+            return '${AppConfig.driveDownloadUrl}/$fileId?alt=media&key=${AppConfig.driveApiKey}';
+          }
         }
       }
     } catch (_) {}
-
     return null;
+  }
+
+  Future<bool> _hasCauceJson(String folderId) async {
+    final url = '${AppConfig.driveBaseUrl}/files'
+        '?q=name=%27cauce.json%27'
+        '+and+%27$folderId%27+in+parents'
+        '+and+trashed=false'
+        '&key=${AppConfig.driveApiKey}'
+        '&fields=files(id)';
+    try {
+      final response = await _client.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final files = data['files'] as List<dynamic>? ?? [];
+        return files.isNotEmpty;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  Future<List<VideoItem>> listMediaInFolder(String folderId) async {
+    final url = '${AppConfig.driveBaseUrl}/files'
+        '?q=%27$folderId%27+in+parents'
+        '+and+trashed=false'
+        '&key=${AppConfig.driveApiKey}'
+        '&fields=files(id,name,thumbnailLink,videoMediaMetadata)';
+
+    try {
+      final response = await _client.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final files = data['files'] as List<dynamic>? ?? [];
+        final items = <VideoItem>[];
+
+        for (final f in files) {
+          final fileId = f['id'] as String;
+          final fileName = f['name'] as String;
+          final lowerName = fileName.toLowerCase();
+
+          final String? type;
+          final String cleanName;
+
+          if (lowerName.endsWith('.mp4')) {
+            type = 'video';
+            cleanName = fileName.substring(0, fileName.length - 4);
+          } else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+            type = 'image';
+            cleanName = _stripExtension(fileName);
+          } else if (lowerName.endsWith('.png')) {
+            type = 'image';
+            cleanName = _stripExtension(fileName);
+          } else if (lowerName.endsWith('.webp')) {
+            type = 'image';
+            cleanName = _stripExtension(fileName);
+          } else if (lowerName.endsWith('.gif')) {
+            type = 'gif';
+            cleanName = _stripExtension(fileName);
+          } else if (lowerName.endsWith('.pdf')) {
+            type = 'pdf';
+            cleanName = _stripExtension(fileName);
+          } else {
+            continue;
+          }
+
+          final fileUrl = '${AppConfig.driveDownloadUrl}/$fileId?alt=media&key=${AppConfig.driveApiKey}';
+          final thumbnailUrl = f['thumbnailLink'] as String?;
+
+          String? duration;
+          if (type == 'video') {
+            final metadata = f['videoMediaMetadata'] as Map<String, dynamic>?;
+            if (metadata != null && metadata.containsKey('durationMillis')) {
+              final millis = int.tryParse(metadata['durationMillis'].toString());
+              if (millis != null) {
+                duration = _formatDuration(millis);
+              }
+            }
+          }
+
+          items.add(VideoItem(
+            id: fileId,
+            name: cleanName,
+            fileUrl: fileUrl,
+            thumbnailUrl: thumbnailUrl,
+            duration: duration,
+            type: type,
+          ));
+        }
+
+        return items;
+      }
+    } catch (_) {}
+
+    return [];
+  }
+
+  Future<List<BrowserItem>> listContents(String folderId) async {
+    final folders = await _listSubfolders(folderId);
+    final files = await listMediaInFolder(folderId);
+
+    final items = <BrowserItem>[];
+
+    for (final f in folders) {
+      items.add(BrowserItem(
+        id: f['id']!,
+        name: f['name']!,
+        isFolder: true,
+        folderId: f['id']!,
+      ));
+    }
+
+    for (final file in files) {
+      items.add(BrowserItem(
+        id: file.id,
+        name: file.name,
+        isFolder: false,
+        fileUrl: file.fileUrl,
+        thumbnailUrl: file.thumbnailUrl,
+        fileType: file.type,
+      ));
+    }
+
+    return items;
+  }
+
+  String _stripExtension(String fileName) {
+    final dot = fileName.lastIndexOf('.');
+    if (dot > 0) return fileName.substring(0, dot);
+    return fileName;
   }
 
   String _formatDuration(int millis) {

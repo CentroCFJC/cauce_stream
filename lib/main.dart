@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'screens/splash_screen.dart';
+import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,7 +34,7 @@ class CauceStreamApp extends StatelessWidget {
           useMaterial3: true,
           focusColor: Colors.white,
         ),
-        home: const SplashScreen(),
+        home: const HomeScreen(),
       ),
     );
   }

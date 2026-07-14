@@ -37,16 +37,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
-    if (Platform.isAndroid) {
-      _initAndroidPlayer();
+    if (widget.video.type == 'video') {
+      if (Platform.isAndroid) {
+        _initAndroidPlayer();
+      }
+    } else {
+      setState(() => _initialized = true);
     }
   }
 
   Future<void> _initAndroidPlayer() async {
     while (_retryCount < _maxRetries) {
       try {
-        debugPrint('[CAUCE] Intento ${_retryCount + 1}/$_maxRetries — Cargando: ${widget.video.videoUrl}');
-        final ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.video.videoUrl));
+        debugPrint('[CAUCE] Intento ${_retryCount + 1}/$_maxRetries — Cargando: ${widget.video.fileUrl}');
+        final ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.video.fileUrl));
         _controller = ctrl;
         await ctrl.initialize();
         ctrl.setLooping(true);
@@ -93,7 +97,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent || !_initialized) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    if (event.logicalKey == LogicalKeyboardKey.escape ||
+        event.logicalKey == LogicalKeyboardKey.gameButtonB ||
+        event.logicalKey == LogicalKeyboardKey.goBack ||
+        event.logicalKey == LogicalKeyboardKey.backspace ||
+        event.logicalKey == LogicalKeyboardKey.mediaStop) {
+      if (!_hasPopped && Navigator.canPop(context)) {
+        _hasPopped = true;
+        Navigator.pop(context);
+      }
+      return KeyEventResult.handled;
+    }
+
+    if (!_initialized) return KeyEventResult.ignored;
 
     if (event.logicalKey == LogicalKeyboardKey.mediaPlayPause ||
         event.logicalKey == LogicalKeyboardKey.select) {
@@ -128,19 +146,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return KeyEventResult.handled;
     }
 
-    if (event.logicalKey == LogicalKeyboardKey.mediaStop) {
-      if (!_hasPopped && Navigator.canPop(context)) {
-        _hasPopped = true;
-        Navigator.pop(context);
-      }
-      return KeyEventResult.handled;
-    }
-
     return KeyEventResult.ignored;
   }
 
   @override
   Widget build(BuildContext context) {
+    final video = widget.video;
+
+    if (video.type == 'image' || video.type == 'gif') {
+      return _buildImageViewer();
+    }
+
+    if (video.type == 'pdf') {
+      return _buildPdfFallback();
+    }
+
     if (Platform.isAndroid) {
       return PopScope(
         canPop: !_hasPopped,
@@ -209,7 +229,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _openInBrowser() async {
-    final uri = Uri.parse(widget.video.videoUrl);
+    final uri = Uri.parse(widget.video.fileUrl);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
@@ -315,6 +335,108 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
     }
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  Widget _buildImageViewer() {
+    return PopScope(
+      canPop: true,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0A1628),
+        body: Focus(
+          autofocus: true,
+          onKeyEvent: (node, event) {
+            if (event is KeyDownEvent &&
+                (event.logicalKey == LogicalKeyboardKey.escape ||
+                 event.logicalKey == LogicalKeyboardKey.gameButtonB ||
+                 event.logicalKey == LogicalKeyboardKey.goBack ||
+                 event.logicalKey == LogicalKeyboardKey.backspace)) {
+              if (Navigator.canPop(context)) Navigator.pop(context);
+              return KeyEventResult.handled;
+            }
+            if (event is KeyDownEvent &&
+                (event.logicalKey == LogicalKeyboardKey.select ||
+                 event.logicalKey == LogicalKeyboardKey.enter)) {
+              if (Navigator.canPop(context)) Navigator.pop(context);
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: Center(
+            child: Image.network(
+              widget.video.fileUrl,
+              fit: BoxFit.contain,
+              loadingBuilder: (_, child, progress) {
+                if (progress == null) return child;
+                return const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF1565C0)),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPdfFallback() {
+    return PopScope(
+      canPop: true,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0A1628),
+        body: Focus(
+          canRequestFocus: false,
+          onKeyEvent: (node, event) {
+            if (event is KeyDownEvent &&
+                (event.logicalKey == LogicalKeyboardKey.escape ||
+                 event.logicalKey == LogicalKeyboardKey.gameButtonB ||
+                 event.logicalKey == LogicalKeyboardKey.goBack ||
+                 event.logicalKey == LogicalKeyboardKey.backspace)) {
+              if (Navigator.canPop(context)) Navigator.pop(context);
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.picture_as_pdf, color: Color(0xFF1565C0), size: 100),
+                const SizedBox(height: 24),
+                Text(
+                  widget.video.name,
+                  style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Documento PDF',
+                  style: TextStyle(color: Colors.white54, fontSize: 20),
+                ),
+                const SizedBox(height: 40),
+                ElevatedButton.icon(
+                  onPressed: _openInBrowser,
+                  icon: const Icon(Icons.open_in_browser),
+                  label: const Text('Abrir en el navegador'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1565C0),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'Volver al contenido',
+                    style: TextStyle(color: Colors.white54, fontSize: 20),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _retry() async {
